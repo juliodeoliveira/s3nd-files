@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"sort"
 	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -88,6 +89,10 @@ func (c *Client) Ping(ctx context.Context) error {
 }
 
 
+// s3/client.go - Modifique a função ListObjects
+
+// s3/client.go - Versão simplificada sem paginação
+
 func (c *Client) ListObjects(ctx context.Context, bucket, prefix string) ([]Item, error) {
 	if bucket == "" {
 		return nil, fmt.Errorf("nome do bucket não pode ser vazio")
@@ -96,58 +101,91 @@ func (c *Client) ListObjects(ctx context.Context, bucket, prefix string) ([]Item
 	input := &s3.ListObjectsV2Input{
 		Bucket:    aws.String(bucket),
 		Prefix:    aws.String(prefix),
-		Delimiter: aws.String("/"), // Usar delimiter para separar pastas
+		Delimiter: aws.String("/"),
+		MaxKeys:   aws.Int32(10000), // Aumente se quiser mais de uma vez
 	}
 
-	result, err := c.s3.ListObjectsV2(ctx, input)
-	if err != nil {
-		return nil, fmt.Errorf("falha ao listar objetos: %w", err)
-	}
-
-	var items []Item
+	var allItems []Item
+	var continuationToken *string
 	
-	// Primeiro, processar os prefixes (pastas)
-	for _, commonPrefix := range result.CommonPrefixes {
-		if commonPrefix.Prefix != nil {
-			prefixStr := *commonPrefix.Prefix
-			// Extrair o nome da pasta do prefixo completo
-			name := strings.TrimPrefix(prefixStr, prefix)
-			name = strings.TrimSuffix(name, "/")
-			
-			items = append(items, Item{
-				Name:   name + "/",
-				Type:   Folder,
-				Prefix: prefixStr,
-			})
+	for {
+		input.ContinuationToken = continuationToken
+		
+		result, err := c.s3.ListObjectsV2(ctx, input)
+		if err != nil {
+			return nil, fmt.Errorf("falha ao listar objetos: %w", err)
 		}
-	}
-	
-	// Depois, processar os objetos (arquivos)
-	for _, obj := range result.Contents {
-		if obj.Key != nil {
-			key := *obj.Key
-			// Pular se for o próprio prefixo (pasta "vazia")
-			if key == prefix {
-				continue
+		
+		// Processar pastas
+		for _, commonPrefix := range result.CommonPrefixes {
+			if commonPrefix.Prefix != nil {
+				prefixStr := *commonPrefix.Prefix
+				name := strings.TrimPrefix(prefixStr, prefix)
+				name = strings.TrimSuffix(name, "/")
+				
+				allItems = append(allItems, Item{
+					Name:   name + "/",
+					Type:   Folder,
+					Prefix: prefixStr,
+				})
 			}
-			
-			name := strings.TrimPrefix(key, prefix)
-			// Se terminar com "/", é uma pasta já coberta por CommonPrefixes
-			if strings.HasSuffix(name, "/") {
-				continue
-			}
-			
-			items = append(items, Item{
-				Name:   name,
-				Type:   File,
-				Prefix: key,
-			})
 		}
+		
+		// Processar arquivos (sem limite)
+		for _, obj := range result.Contents {
+			if obj.Key != nil {
+				key := *obj.Key
+				if key == prefix {
+					continue
+				}
+				
+				if strings.HasSuffix(key, "/") {
+					continue
+				}
+				
+				name := strings.TrimPrefix(key, prefix)
+				allItems = append(allItems, Item{
+					Name:   name,
+					Type:   File,
+					Prefix: key,
+				})
+			}
+		}
+		
+		// Continuar paginação se necessário
+		if result.NextContinuationToken == nil || !*result.IsTruncated {
+			break
+		}
+		
+		continuationToken = result.NextContinuationToken
+		
+		// Opcional: limite de segurança
+		// if len(allItems) > 10000 { // Limite de 10k itens
+		// 	fmt.Printf("AVISO: Limite de 10000 itens atingido para %s/%s\n", bucket, prefix)
+		// 	break
+		// }
 	}
 
-	return items, nil
+	// Ordenar
+	sortItems(allItems)
+	
+	return allItems, nil
 }
 
+// Adicione esta função auxiliar para ordenar
+func sortItems(items []Item) {
+	sort.Slice(items, func(i, j int) bool {
+		// Pastas primeiro
+		if items[i].Type == Folder && items[j].Type != Folder {
+			return true
+		}
+		if items[i].Type != Folder && items[j].Type == Folder {
+			return false
+		}
+		// Depois ordenar por nome
+		return strings.ToLower(items[i].Name) < strings.ToLower(items[j].Name)
+	})
+}
 // Adicione após a função ListObjects existente
 
 // ListObjectsPaginated lista objetos com paginação
@@ -226,7 +264,7 @@ func (c *Client) CountObjects(ctx context.Context, bucket, prefix string) (int, 
 		Bucket:    aws.String(bucket),
 		Prefix:    aws.String(prefix),
 		Delimiter: aws.String("/"),
-		MaxKeys:   aws.Int32(1000), // Limitar para resposta rápida
+		MaxKeys:   aws.Int32(10000), // Limitar para resposta rápida
 	}
 
 	result, err := c.s3.ListObjectsV2(ctx, input)
@@ -263,6 +301,4 @@ func (c *Client) UploadFile(ctx context.Context, bucket, key, filepath string) e
 	
 	return err
 }
-
-
 

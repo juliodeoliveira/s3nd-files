@@ -164,163 +164,130 @@ func Run() {
 
 	// Adicione esta função APÓS getParentPrefix e ANTES de "Container inicial da S3"
 // Funções auxiliares
-	loadOnlyFolders := func(bucket, prefix string, count int) {
-		items, _, err := s3Client.ListObjectsPaginated(context.Background(), bucket, prefix, 100)
-		if err != nil {
-			runOnUIThread(func() {
-				dialog.ShowError(fmt.Errorf("falha ao listar pastas: %v", err), w)
-			})
-			return
-		}
+	// loadOnlyFolders := func(bucket, prefix string, count int) {
+	// 	items, _, err := s3Client.ListObjectsPaginated(context.Background(), bucket, prefix, 100)
+	// 	if err != nil {
+	// 		runOnUIThread(func() {
+	// 			dialog.ShowError(fmt.Errorf("falha ao listar pastas: %v", err), w)
+	// 		})
+	// 		return
+	// 	}
 		
-		// Filtrar apenas pastas
-		var folders []s3.Item
-		for _, item := range items {
-			if item.Type == s3.Folder {
-				folders = append(folders, item)
-			}
-		}
+	// 	// Filtrar apenas pastas
+	// 	var folders []s3.Item
+	// 	for _, item := range items {
+	// 		if item.Type == s3.Folder {
+	// 			folders = append(folders, item)
+	// 		}
+	// 	}
 		
-		// Adicionar ".." se não estiver na raiz
-		if prefix != "" {
-			folders = append([]s3.Item{{Name: "..", Type: s3.Folder}}, folders...)
-		}
+	// 	// Adicionar ".." se não estiver na raiz
+	// 	if prefix != "" {
+	// 		folders = append([]s3.Item{{Name: "..", Type: s3.Folder}}, folders...)
+	// 	}
 		
-		runOnUIThread(func() {
-			s3Items = folders
-			currentBucket = bucket
-			currentPrefix = prefix
-			s3Status.SetText(fmt.Sprintf("Bucket: %s | Pasta: %s (%d+ itens, mostrando %d pastas)", 
-				bucket, prefix, count, len(folders)))
-			s3List.Refresh()
-		})
-	}
+	// 	runOnUIThread(func() {
+	// 		s3Items = folders
+	// 		currentBucket = bucket
+	// 		currentPrefix = prefix
+	// 		s3Status.SetText(fmt.Sprintf("Bucket: %s | Pasta: %s (%d+ itens, mostrando %d pastas)", 
+	// 			bucket, prefix, count, len(folders)))
+	// 		s3List.Refresh()
+	// 	})
+	// }
 
-	loadFirstItems := func(bucket, prefix string, limit int32, total int) {
-		items, nextToken, err := s3Client.ListObjectsPaginated(context.Background(), bucket, prefix, limit)
-		if err != nil {
-			runOnUIThread(func() {
-				dialog.ShowError(fmt.Errorf("falha ao listar objetos: %v", err), w)
-			})
-			return
-		}
+	// loadFirstItems := func(bucket, prefix string, limit int32, total int) {
+	// 	items, nextToken, err := s3Client.ListObjectsPaginated(context.Background(), bucket, prefix, limit)
+	// 	if err != nil {
+	// 		runOnUIThread(func() {
+	// 			dialog.ShowError(fmt.Errorf("falha ao listar objetos: %v", err), w)
+	// 		})
+	// 		return
+	// 	}
 		
-		// Adicionar ".." se não estiver na raiz
-		if prefix != "" {
-			items = append([]s3.Item{{Name: "..", Type: s3.Folder}}, items...)
-		}
+	// 	// Adicionar ".." se não estiver na raiz
+	// 	if prefix != "" {
+	// 		items = append([]s3.Item{{Name: "..", Type: s3.Folder}}, items...)
+	// 	}
 		
-		// Adicionar item para carregar mais se houver
-		if nextToken != "" {
-			items = append(items, s3.Item{
-				Name: fmt.Sprintf("... (carregar mais, %d+ itens restantes)", total-len(items)+1),
-				Type: s3.Folder,
-				Prefix: "LOAD_MORE",
-			})
-		}
+	// 	// Adicionar item para carregar mais se houver
+	// 	if nextToken != "" {
+	// 		items = append(items, s3.Item{
+	// 			Name: fmt.Sprintf("... (carregar mais, %d+ itens restantes)", total-len(items)+1),
+	// 			Type: s3.Folder,
+	// 			Prefix: "LOAD_MORE",
+	// 		})
+	// 	}
 		
-		runOnUIThread(func() {
-			s3Items = items
-			currentBucket = bucket
-			currentPrefix = prefix
-			s3Status.SetText(fmt.Sprintf("Bucket: %s | Pasta: %s (mostrando %d de %d+ itens)", 
-				bucket, prefix, len(items), total))
-			s3List.Refresh()
-		})
-	}
+	// 	runOnUIThread(func() {
+	// 		s3Items = items
+	// 		currentBucket = bucket
+	// 		currentPrefix = prefix
+	// 		s3Status.SetText(fmt.Sprintf("Bucket: %s | Pasta: %s (mostrando %d de %d+ itens)", 
+	// 			bucket, prefix, len(items), total))
+	// 		s3List.Refresh()
+	// 	})
+	// }
 	
 	// Função para navegar com tratamento de pastas grandes
 	// ui/window.go - Versão corrigida usando runOnUIThread
+
+	// ui/window.go - Função navigateWithLimit corrigida
+
+	// ui/window.go - Remova estas funções completamente:
+
+// REMOVA estas funções:
+// loadOnlyFolders
+// loadFirstItems
+
+// Simplifique a função navigateWithLimit:
 
 	navigateWithLimit := func(bucket, prefix string) {
 		if !s3Connected || s3Client == nil {
 			return
 		}
 		
-		// Mostrar loading - usar runOnUIThread
-		runOnUIThread(func() {
-			loadingDialog := dialog.NewProgressInfinite("Analisando", 
-				fmt.Sprintf("Verificando conteúdo..."), w)
-			loadingDialog.Show()
+		// Criar dialog na thread principal
+		loadingDialog := dialog.NewProgressInfinite("Carregando", 
+			fmt.Sprintf("Listando %s/%s...", bucket, prefix), w)
+		loadingDialog.Show()
+		
+		go func() {
+			// Esconder dialog no final
+			defer runOnUIThread(func() {
+				loadingDialog.Hide()
+			})
 			
-			go func() {
-				defer func() {
-					// Esconder loading - usar runOnUIThread
-					runOnUIThread(func() {
-						loadingDialog.Hide()
-					})
-				}()
-				
-				// Primeiro contar objetos (operação de rede, em goroutine OK)
-				count, err := s3Client.CountObjects(context.Background(), bucket, prefix)
-				if err != nil {
-					fmt.Printf("Erro ao contar objetos: %v\n", err)
-					count = 0
-				}
-				
-				fmt.Printf("DEBUG: Pasta %s/%s tem aproximadamente %d itens\n", bucket, prefix, count)
-				
-				// Se for uma pasta com muitos arquivos
-				if count > 1000 {
-					// Fechar loading primeiro
-					runOnUIThread(func() {
-						loadingDialog.Hide()
-					})
-					
-					// Mostrar diálogo de opções - usar runOnUIThread
-					runOnUIThread(func() {
-						dialog.ShowCustom(
-							"Muitos Itens",
-							"Cancelar",
-							container.NewVBox(
-								widget.NewLabel(fmt.Sprintf("Esta pasta contém aproximadamente %d itens.", count)),
-								widget.NewLabel("Para melhor performance:"),
-								widget.NewButton("📁 Ver apenas pastas (recomendado)", func() {
-									go func() {
-										loadOnlyFolders(bucket, prefix, count)
-									}()
-								}),
-								widget.NewButton("⬇ Carregar primeiros 500 itens", func() {
-									go func() {
-										loadFirstItems(bucket, prefix, 500, count)
-									}()
-								}),
-							),
-							w,
-						)
-					})
-					return
-				}
-				
-				// Para pastas pequenas, carregar normalmente
-				items, err := s3Client.ListObjects(context.Background(), bucket, prefix)
-				if err != nil {
-					runOnUIThread(func() {
-						dialog.ShowError(fmt.Errorf("falha ao listar objetos: %v", err), w)
-					})
-					return
-				}
-				
-				// Adicionar ".." se não estiver na raiz
-				if prefix != "" {
-					items = append([]s3.Item{{Name: "..", Type: s3.Folder}}, items...)
-				}
-				
-				// Atualizar UI - usar runOnUIThread
+			// Remova toda a lógica de contagem e diálogo de "Muitos Itens"
+			// Apenas liste diretamente
+			items, err := s3Client.ListObjects(context.Background(), bucket, prefix)
+			if err != nil {
 				runOnUIThread(func() {
-					s3Items = items
-					currentBucket = bucket
-					currentPrefix = prefix
-					
-					statusText := fmt.Sprintf("Bucket: %s | Pasta: %s", bucket, prefix)
-					if count > 0 {
-						statusText += fmt.Sprintf(" (%d itens)", len(items))
-					}
-					s3Status.SetText(statusText)
-					s3List.Refresh()
+					dialog.ShowError(fmt.Errorf("falha ao listar objetos: %v", err), w)
 				})
-			}()
-		})
+				return
+			}
+			
+			// Adicionar ".." para navegação
+			if bucket != "" {
+				items = append([]s3.Item{{Name: "..", Type: s3.Folder}}, items...)
+			}
+			
+			// Atualizar UI
+			runOnUIThread(func() {
+				s3Items = items
+				currentBucket = bucket
+				currentPrefix = prefix
+				
+				statusText := fmt.Sprintf("Bucket: %s", bucket)
+				if prefix != "" {
+					statusText += fmt.Sprintf(" | Pasta: %s", prefix)
+				}
+				statusText += fmt.Sprintf(" (%d itens)", len(items))
+				s3Status.SetText(statusText)
+				s3List.Refresh()
+			})
+		}()
 	}
 
 // Funções auxiliares - também precisam usar runOnUIThread para atualizações de UI
@@ -418,98 +385,24 @@ func Run() {
 		item := s3Items[id]
 		
 		if item.Type == s3.Bucket {
-			// Entrar no bucket
-			// currentBucket = item.Name
-			// currentPrefix = ""
+			// Usar a nova função de navegação com limite
 			navigateWithLimit(item.Name, "")
-
-			// Mostrar loading
-			loadingDialog := dialog.NewProgressInfinite("Carregando", 
-				fmt.Sprintf("Listando objetos do bucket %s...", currentBucket), w)
-			loadingDialog.Show()
-			
-			go func() {
-				defer loadingDialog.Hide()
-				
-				// Listar objetos reais do bucket
-				items, err := s3Client.ListObjects(context.Background(), currentBucket, currentPrefix)
-				if err != nil {
-					dialog.ShowError(fmt.Errorf("falha ao listar objetos: %v", err), w)
-					return
-				}
-				
-				// Atualizar lista
-				s3Items = items
-				s3Status.SetText(fmt.Sprintf("Bucket: %s", currentBucket))
-				s3List.Refresh()
-			}()
 			
 		} else if item.Type == s3.Folder {
-			loadingDialog := dialog.NewProgressInfinite("Navegando", 
-				fmt.Sprintf("Entrando na pasta %s...", item.Name), w)
-			loadingDialog.Show()
-			
-			go func() {
-				defer loadingDialog.Hide()
-				
-				if item.Name == ".." {
-					// Voltar para o pai
-					if currentPrefix == "" {
-						// Voltar para lista de buckets
-						currentBucket = ""
-						
-						// Listar buckets novamente
-						buckets, err := s3Client.ListBuckets(context.Background())
-						if err != nil {
-							dialog.ShowError(err, w)
-							return
-						}
-						
-						s3Items = make([]s3.Item, 0, len(buckets))
-						for _, bucketName := range buckets {
-							s3Items = append(s3Items, s3.Item{
-								Name: bucketName,
-								Type: s3.Bucket,
-							})
-						}
-						s3Status.SetText(fmt.Sprintf("Conectado - %d bucket(s)", len(buckets)))
-					} else {
-						// Subir um nível no prefixo
-						currentPrefix = getParentPrefix(currentPrefix)
-						
-						// Listar objetos no novo prefixo
-						items, err := s3Client.ListObjects(context.Background(), currentBucket, currentPrefix)
-						if err != nil {
-							dialog.ShowError(fmt.Errorf("falha ao listar objetos: %v", err), w)
-							return
-						}
-						
-						s3Items = items
-						// Adicionar ".." se não estiver na raiz
-						if currentPrefix != "" {
-							s3Items = append([]s3.Item{{Name: "..", Type: s3.Folder}}, s3Items...)
-						}
-					}
+			if item.Name == ".." {
+				// Lógica para voltar...
+				if currentPrefix == "" {
+					// Voltar para lista de buckets
+					navigateWithLimit("", "")
 				} else {
-					// Entrar na pasta
-					currentPrefix = item.Prefix
-					
-					// Listar objetos na pasta
-					items, err := s3Client.ListObjects(context.Background(), currentBucket, currentPrefix)
-					if err != nil {
-						dialog.ShowError(fmt.Errorf("falha ao listar objetos: %v", err), w)
-						return
-					}
-					
-					s3Items = items
-					// Sempre adicionar ".." para voltar
-					s3Items = append([]s3.Item{{Name: "..", Type: s3.Folder}}, s3Items...)
+					// Subir um nível
+					parentPrefix := getParentPrefix(currentPrefix)
+					navigateWithLimit(currentBucket, parentPrefix)
 				}
-				
-				// Atualizar UI
-				s3Status.SetText(fmt.Sprintf("Bucket: %s | Pasta: %s", currentBucket, currentPrefix))
-				s3List.Refresh()
-			}()
+			} else {
+				// Entrar na pasta
+				navigateWithLimit(currentBucket, item.Prefix)
+			}
 			
 		} else if item.Type == s3.File {
 			// Mostrar informações do arquivo

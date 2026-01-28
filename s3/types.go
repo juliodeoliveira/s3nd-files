@@ -1,4 +1,3 @@
-// s3/types.go (crie este arquivo)
 package s3
 
 type ItemType int
