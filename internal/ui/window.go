@@ -9,7 +9,8 @@ import (
 	"sort"
 	"strings"
 
-	"s3nd-files/s3"
+	"s3nd-files/internal/services/aws"
+	"s3nd-files/internal/models"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/app"
@@ -18,7 +19,7 @@ import (
 	"fyne.io/fyne/v2/widget"
 )
 
-func showConnectionDialog(w fyne.Window, onConnect func(s3.Config)) {
+func showConnectionDialog(w fyne.Window, onConnect func(aws.Config)) {
 	// Campos do formulário
 	endpointEntry := widget.NewEntry()
 	endpointEntry.SetPlaceHolder("s3.amazonaws.com ou minio.example.com")
@@ -119,7 +120,7 @@ func showConnectionDialog(w fyne.Window, onConnect func(s3.Config)) {
 				return
 			}
 			
-			cfg := s3.Config{
+			cfg := aws.Config{
 				Endpoint:        endpointEntry.Text,
 				Region:          regionEntry.Text,
 				AccessKey:       accessKeyEntry.Text,
@@ -182,7 +183,7 @@ func showConnectionDialog(w fyne.Window, onConnect func(s3.Config)) {
 }
 
 // Função para salvar conexão bem-sucedida (opcional)
-func saveSuccessfulConnection(cfg s3.Config) {
+func saveSuccessfulConnection(cfg aws.Config) {
 	// Aqui você pode salvar as configurações em um arquivo
 	// para reconectar automaticamente na próxima vez
 	fmt.Printf("✅ Conexão bem-sucedida salva: (feat not created) %s\n", cfg.Endpoint)
@@ -314,8 +315,9 @@ func Run() {
 	// S3 - variáveis
 	// =====================
 	var (
-		s3Client    *s3.Client
-		s3Items     []s3.Item
+		s3Client    *aws.Client
+		// esse []Item deveria ser de outro pacote, mas depois eu mexo nele (types.go)
+		s3Items     []models.Item
 		s3Connected bool
 	)
 
@@ -336,11 +338,19 @@ func Run() {
 			item := s3Items[id]
 
 			icon := "📄 "
-			if item.Type == s3.Bucket {
+			switch item.Type {
+			case models.Bucket:
 				icon = "🪣 "
-			} else if item.Type == s3.Folder {
+			case models.Folder:
 				icon = "📁 "
 			}
+
+			//? será que é mais conciso?
+			// if item.Type == models.Bucket {
+			// 	icon = "🪣 "
+			// } else if item.Type == models.Folder {
+			// 	icon = "📁 "
+			// }
 
 			obj.(*widget.Label).SetText(icon + item.Name)
 		},
@@ -465,8 +475,9 @@ func Run() {
 			}
 			
 			// Adicionar ".." para navegação
+			// mais um de types.go
 			if bucket != "" {
-				items = append([]s3.Item{{Name: "..", Type: s3.Folder}}, items...)
+				items = append([]models.Item{{Name: "..", Type: models.Folder}}, items...)
 			}
 			
 			// Atualizar UI
@@ -506,7 +517,7 @@ func Run() {
 	// ui/window.go - Substitua o botão connectBtn
 
 	connectBtn := widget.NewButton("Conectar à S3", func() {
-		showConnectionDialog(w, func(cfg s3.Config) {
+		showConnectionDialog(w, func(cfg aws.Config) {
 			// Mostrar loading
 			loadingDialog := dialog.NewProgressInfinite("Conectando", 
 				"Testando conexão com S3...", w)
@@ -520,7 +531,7 @@ func Run() {
 				fmt.Printf("Conectando a: %s (Região: %s)\n", cfg.Endpoint, cfg.Region)
 				fmt.Printf("SSL: %v, PathStyle: %v\n", cfg.UseSSL && !cfg.DisableSSL, cfg.ForcePathStyle)
 				
-				client, err := s3.New(cfg)
+				client, err := aws.New(cfg)
 				if err != nil {
 					runOnUIThread(func() {
 						dialog.ShowError(fmt.Errorf("falha ao criar cliente S3: %v", err), w)
@@ -537,6 +548,7 @@ func Run() {
 							"1. Endpoint e credenciais corretos\n"+
 							"2. SSL configurado corretamente\n"+
 							"3. Serviço S3 acessível", err)
+							// nao é um erro mas me encomoda pra caramba
 						dialog.ShowError(fmt.Errorf(errorMsg), w)
 					})
 					return
@@ -547,11 +559,14 @@ func Run() {
 				s3Connected = true
 				
 				runOnUIThread(func() {
-					s3Items = make([]s3.Item, 0, len(buckets))
+					// types.go
+					s3Items = make([]models.Item, 0, len(buckets))
 					for _, bucketName := range buckets {
-						s3Items = append(s3Items, s3.Item{
+						// types.go
+						s3Items = append(s3Items, models.Item{
 							Name: bucketName,
-							Type: s3.Bucket,
+						// types.go
+							Type: models.Bucket,
 						})
 					}
 					
@@ -592,11 +607,10 @@ func Run() {
 
 		item := s3Items[id]
 		
-		if item.Type == s3.Bucket {
-			// Usar a nova função de navegação com limite
+		switch item.Type {
+		case models.Bucket:
 			navigateWithLimit(item.Name, "")
-			
-		} else if item.Type == s3.Folder {
+		case models.Folder:
 			if item.Name == ".." {
 				// Lógica para voltar...
 				if currentPrefix == "" {
@@ -612,7 +626,8 @@ func Run() {
 				navigateWithLimit(currentBucket, item.Prefix)
 			}
 			
-		} else if item.Type == s3.File {
+	
+		case models.File:
 			// Mostrar informações do arquivo
 			fileInfo := fmt.Sprintf("Arquivo: %s\nBucket: %s\nCaminho: %s", 
 				item.Name, currentBucket, item.Prefix)

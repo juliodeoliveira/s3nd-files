@@ -1,5 +1,5 @@
 // s3/client.go
-package s3
+package aws
 
 import (
 	"context"
@@ -9,6 +9,8 @@ import (
 	"os"
 	"sort"
 	"strings"
+
+	"s3nd-files/internal/models"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
@@ -151,7 +153,7 @@ func (c *Client) Ping(ctx context.Context) error {
 
 // s3/client.go - Versão simplificada sem paginação
 
-func (c *Client) ListObjects(ctx context.Context, bucket, prefix string) ([]Item, error) {
+func (c *Client) ListObjects(ctx context.Context, bucket, prefix string) ([]models.Item, error) {
 	if bucket == "" {
 		return nil, fmt.Errorf("nome do bucket não pode ser vazio")
 	}
@@ -163,7 +165,7 @@ func (c *Client) ListObjects(ctx context.Context, bucket, prefix string) ([]Item
 		MaxKeys:   aws.Int32(10000), // Aumente se quiser mais de uma vez
 	}
 
-	var allItems []Item
+	var allItems []models.Item
 	var continuationToken *string
 	
 	for {
@@ -181,9 +183,9 @@ func (c *Client) ListObjects(ctx context.Context, bucket, prefix string) ([]Item
 				name := strings.TrimPrefix(prefixStr, prefix)
 				name = strings.TrimSuffix(name, "/")
 				
-				allItems = append(allItems, Item{
+				allItems = append(allItems, models.Item{
 					Name:   name + "/",
-					Type:   Folder,
+					Type:   models.Folder,
 					Prefix: prefixStr,
 				})
 			}
@@ -202,9 +204,9 @@ func (c *Client) ListObjects(ctx context.Context, bucket, prefix string) ([]Item
 				}
 				
 				name := strings.TrimPrefix(key, prefix)
-				allItems = append(allItems, Item{
+				allItems = append(allItems, models.Item{
 					Name:   name,
-					Type:   File,
+					Type:   models.File,
 					Prefix: key,
 				})
 			}
@@ -231,13 +233,13 @@ func (c *Client) ListObjects(ctx context.Context, bucket, prefix string) ([]Item
 }
 
 // Adicione esta função auxiliar para ordenar
-func sortItems(items []Item) {
+func sortItems(items []models.Item) {
 	sort.Slice(items, func(i, j int) bool {
 		// Pastas primeiro
-		if items[i].Type == Folder && items[j].Type != Folder {
+		if items[i].Type == models.Folder && items[j].Type != models.Folder {
 			return true
 		}
-		if items[i].Type != Folder && items[j].Type == Folder {
+		if items[i].Type != models.Folder && items[j].Type == models.Folder {
 			return false
 		}
 		// Depois ordenar por nome
@@ -247,7 +249,7 @@ func sortItems(items []Item) {
 // Adicione após a função ListObjects existente
 
 // ListObjectsPaginated lista objetos com paginação
-func (c *Client) ListObjectsPaginated(ctx context.Context, bucket, prefix string, maxKeys int32) ([]Item, string, error) {
+func (c *Client) ListObjectsPaginated(ctx context.Context, bucket, prefix string, maxKeys int32) ([]models.Item, string, error) {
 	if bucket == "" {
 		return nil, "", fmt.Errorf("nome do bucket não pode ser vazio")
 	}
@@ -264,7 +266,7 @@ func (c *Client) ListObjectsPaginated(ctx context.Context, bucket, prefix string
 		return nil, "", fmt.Errorf("falha ao listar objetos: %w", err)
 	}
 
-	var items []Item
+	var items []models.Item
 	
 	// Processar pastas
 	for _, commonPrefix := range result.CommonPrefixes {
@@ -273,9 +275,9 @@ func (c *Client) ListObjectsPaginated(ctx context.Context, bucket, prefix string
 			name := strings.TrimPrefix(prefixStr, prefix)
 			name = strings.TrimSuffix(name, "/")
 			
-			items = append(items, Item{
+			items = append(items, models.Item{
 				Name:   name + "/",
-				Type:   Folder,
+				Type:   models.Folder,
 				Prefix: prefixStr,
 			})
 		}
@@ -294,9 +296,9 @@ func (c *Client) ListObjectsPaginated(ctx context.Context, bucket, prefix string
 				continue
 			}
 			
-			items = append(items, Item{
+			items = append(items, models.Item{
 				Name:   name,
-				Type:   File,
+				Type:   models.File,
 				Prefix: key,
 			})
 		}

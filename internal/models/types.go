@@ -1,5 +1,5 @@
 // s3/types.go (crie este arquivo)
-package s3
+package models
 
 type ItemType int
 
