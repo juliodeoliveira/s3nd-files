@@ -1,0 +1,3 @@
+ - go mod init s3nd-files
+ - go mod tidy
+ - go run .
